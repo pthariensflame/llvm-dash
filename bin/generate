@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+DOCSET_NAME='LLVM'
+BUILD_DIR=""
+LLVM_VERSION="$LLVM_VERSION"
+LLVM_SRC_DIR=""
+
+if ! type -p sphinx-build >/dev/null; then
+    echo "Cannot locate sphinx-build, is Sphinx installed?"
+    exit 2
+fi
+
+# If LLVM_VERSION is not specified, try to detect if one is available on the PATH,
+# then fallback to llvmenv if present
+if [ -z "$LLVM_VERSION" ]; then
+    if type -p llvm-config >/dev/null; then
+        LLVM_VERSION="$(llvm-config --version)"
+        LLVM_SRC_DIR="$(llvm-config --src-root)"
+        if [ ! -d "${LLVM_SRC_DIR}" ]; then
+            echo "The system LLVM source root (${LLVM_SRC_DIR}) doesn't exist"
+            exit 2
+        fi
+    elif type -p llvmenv >/dev/null; then
+        llvmenv_prefix="$(llvmenv prefix)"
+        llvm_config="${llvmenv_prefix}/bin/llvm-config"
+        if LLVM_VERSION="$("${llvm_config}" --version)"; then
+            LLVM_SRC_DIR="$("${llvm_config}" --src-root)"
+            if [ -d "${LLVM_SRC_DIR}/build/docs/doxygen/html" ] && [ -f "${LLVM_SRC_DIR}/build/docs/llvm.tags" ]; then
+                # Doxygen docs have been generated with a tagfile
+                mkdir -p "${REPO_DIR}/_build/${LLVM_VERSION}/build"
+                cp --update -R "${LLVM_SRC_DIR}/build/docs/doxygen/html" "${REPO_DIR}/_build/${LLVM_VERSION}/build/doxygen"
+                cp --update "${LLVM_SRC_DIR}/build/docs/llvm.tags" "${REPO_DIR}/_build/${LLVM_VERSION}/build/doxygen/llvm.tags"
+            fi
+        else
+            echo "There is no current llvmenv version active"
+            exit 2
+        fi
+    else
+        echo "Please set LLVM_VERSION to a valid LLVM version string"
+        exit 2
+    fi
+fi
+
+VERSION_DIR="${REPO_DIR}/_build/${LLVM_VERSION}"
+BUILD_DIR="${VERSION_DIR}/build"
+DOCSET_ROOT="${VERSION_DIR}/${DOCSET_NAME}.docset"
+OUTPUT_DIR="${DOCSET_ROOT}/Contents/Resources/"
+DOCS_DIR="${OUTPUT_DIR}/Documents"
+mkdir -p "${VERSION_DIR}"
+mkdir -p "${BUILD_DIR}"
+mkdir -p "${OUTPUT_DIR}"
+
+# Add icon
+if [ -f "${REPO_DIR}/resources/icon.png" ]; then
+    cp "${REPO_DIR}/resources/icon.png" "${DOCSET_ROOT}/icon.png"
+fi
+
+# No source available, download it
+if [ -z "$LLVM_SRC_DIR" ]; then
+    src_name="llvm-${LLVM_VERSION}.src"
+    LLVM_SRC_DIR="${VERSION_DIR}/src"
+    if [ ! -d "${LLVM_SRC_DIR}" ]; then
+        mkdir -p "${LLVM_SRC_DIR}"
+        tarball="src.tar.xz"
+        download_path="${VERSION_DIR}/${tarball}"
+        if [ ! -f "${download_path}" ]; then
+            url="http://releases.llvm.org/${LLVM_VERSION}/${src_name}.tar.xz"
+            if ! wget --quiet --show-progress "$url" -O "${download_path}"; then
+                exit 1
+            fi
+        fi
+        if ! tar -xf "${download_path}" -C "${LLVM_SRC_DIR}" --strip-components 1 "${src_name}/docs" "${src_name}/examples"; then
+            exit 1
+        fi
+    fi
+fi
+
+# Build docs
+if [ ! -d "${BUILD_DIR}/html" ]; then
+    pushd "${LLVM_SRC_DIR}/docs"
+    if ! make -f Makefile.sphinx BUILDDIR="${BUILD_DIR}"; then
+        exit 1
+    fi
+    popd
+fi
+
+# Determine if we have Doxygen docs in an appropriate format
+DOXYGEN_PATH="${BUILD_DIR}/doxygen"
+if [ -d "${DOXYGEN_PATH}" ]; then
+    cp --update -R "${DOXYGEN_PATH}" "${BUILD_DIR}/html/doxygen"
+else
+    # Fall back to legacy generation
+    tarball="llvm_doxygen-${LLVM_VERSION}.tar.xz"
+    url="http://releases.llvm.org/${LLVM_VERSION}/${tarball}"
+    download_path="${BUILD_DIR}/doxygen.tar.xz"
+    if [ ! -f "${download_path}" ]; then
+        if ! wget --quiet --show-progress "${url}" -O "${download_path}"; then
+            echo "Failed to download doxygen docs!"
+            exit 1
+        fi
+    fi
+    if ! tar -xf "${download_path}" -C "${DOXYGEN_PATH}"; then
+        exit 1
+    fi
+fi
+
+
+# Build successful, move output to docset directory
+cp --update -R --target-directory "${DOCS_DIR}" "${BUILD_DIR}/html/"
+
+# Build docset database
+python "${REPO_DIR}/bin/index.py" \
+    --docset="${DOCSET_NAME}.docset" \
+    --docset-root="${DOCSET_ROOT}" \
+    --llvm-version="${LLVM_VERSION}" \
+    --llvm-source="${LLVM_SRC_DIR}"
+
+# Link latest docset into root
+ln -sf "${DOCSET_ROOT}" "${REPO_DIR}/${DOCSET_NAME}.docset"
