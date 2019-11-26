@@ -140,7 +140,7 @@ fi
 # Determine if we have Doxygen docs in an appropriate format
 if [ ! -z "${DOXYGEN_PATH}" ] && [ -d "${DOXYGEN_PATH}" ]; then
     if [ ! -d "${DOCS_DIR}/doxygen" ]; then
-        rsync -r -u --exclude="*.md5" --progress "${DOXYGEN_PATH}/" "${DOCS_DIR}/doxygen"
+        rsync -r -u --exclude="*.xml" --exclude="*.md5" --progress "${DOXYGEN_PATH}/" "${DOCS_DIR}/doxygen"
     fi
 elif [ -z "$NO_DOXYGEN" ]; then
     # Fall back to legacy generation
@@ -177,3 +177,8 @@ python3 "${REPO_DIR}/bin/index.py" \
     --llvm-version="${LLVM_VERSION}" \
     --llvm-source="${LLVM_SRC_DIR}" \
     $EXTRA
+
+# Clean up
+if [ -d "${DOCSET_ROOT}/Contents/Resources/Documents/doxygen" ]; then
+    rm "${DOCSET_ROOT}/Contents/Resources/Documents/doxygen/llvm.tags"
+fi
