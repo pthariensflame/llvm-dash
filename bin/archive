@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+BUILD_DIR="${REPO_DIR}/_build"
+LLVM_PREFIX="${LLVM_PREFIX/[~]/$HOME}"
+
+if [ -z "$LLVM_PREFIX" ]; then
+    echo "Missing LLVM_PREFIX, cannot proceed"
+    exit 2
+fi
+
+PATH="${LLVM_PREFIX}/bin:$PATH"
+
+if ! type -p llvm-config >/dev/null; then
+    echo "Cannot locate llvm-config, cannot proceed"
+    exit 2
+fi
+
+LLVM_VERSION="$(llvm-config --version)"
+
+DOCSET_ROOT="${BUILD_DIR}/${LLVM_VERSION}"
+DOCSET_PATH="${DOCSET_ROOT}/LLVM.docset"
+
+if [ ! -d "${DOCSET_ROOT}" ]; then
+    echo "Unable to locate docset root for LLVM ${LLVM_VERSION}"
+    exit 2
+fi
+if [ ! -d "${DOCSET_PATH}" ]; then
+    echo "Unable to find LLVM.docset at ${DOCSET_PATH}"
+    exit 2
+fi
+
+pushd "${DOCSET_ROOT}"
+tar -cz --options "compression-level=9" -C "${DOCSET_ROOT}" -f 'LLVM.docset.tar.gz' LLVM.docset

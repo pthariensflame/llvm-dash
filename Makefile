@@ -15,6 +15,10 @@ docs: _venv bin/generate bin/index.py ## Generate docset
 	@env LLVM_PREFIX=$(LLVM_PREFIX) ASSUME_LUMEN_STYLE_BUILD=$(ASSUME_LUMEN_STYLE_BUILD) \
 		bin/generate
 
+tar:
+	@env LLVM_PREFIX=$(LLVM_PREFIX) \
+		bin/archive
+
 reindex: clean-index docs ## Re-generate fresh index
 
 clean: ## Clean generated html files
