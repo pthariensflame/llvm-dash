@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+BUILD_DIR="${REPO_DIR}/_build"
+
+exit_with_usage(){
+    echo "Invalid argument. See usage."
+    echo "USAGE"
+    echo "bin/clean [all|documents|index]"
+    echo
+    echo "ARGUMENTS"
+    echo "    all       Cleans all builds"
+    echo "    documents Cleans only html content from docset"
+    echo "    index     Cleans only the docset index"
+    echo
+    exit 2
+}
+
+if [ ! -z "$1" ]; then
+    case "$1" in
+        all)
+            echo "Cleaning all builds.."
+            CLEAN_ALL=1
+            ;;
+        documents)
+            echo "Cleaning docset content.."
+            CLEAN_DOCS=1
+            ;;
+        index)
+            echo "Cleaning docset index.."
+            CLEAN_INDEX=1
+            ;;
+        *)
+            exit_with_usage
+            ;;
+    esac
+else
+    echo "No mode set, cleaning index only.."
+    CLEAN_INDEX=1
+fi
+
+if [ -d "${BUILD_DIR}" ]; then
+    for f in "${BUILD_DIR}"/*; do
+        VERSION_DIR="${f}"
+        if [ -d "${VERSION_DIR}" ]; then
+            VERSION_BUILD_DIR="${VERSION_DIR}/build"
+            VERSION_DOCSET="${VERSION_DIR}/LLVM.docset"
+            VERSION_RESOURCES="${VERSION_DOCSET}/Contents/Resources"
+            VERSION_DOCUMENTS="${VERSION_RESOURCES}/Documents"
+            DOCSET_INDEX="${VERSION_RESOURCES}/docSet.dsidx"
+            LLVM_VERSION="$(basename "${VERSION_DIR}")"
+
+            if [ ! -z "$CLEAN_ALL" ] && [ -d "${VERSION_BUILD_DIR}" ]; then
+                echo "--> $LLVM_VERSION"
+                rm -rd "${VERSION_BUILD_DIR}"
+                exit $?
+            elif [ ! -z "$CLEAN_DOCS" ] && [ -d "${VERSION_DOCUMENTS}" ]; then
+                echo "--> $LLVM_VERSION"
+                rm -rd "${VERSION_DOCUMENTS}"
+                exit $?
+            elif [ ! -z "$CLEAN_INDEX" ] && [ -f "${DOCSET_INDEX}" ]; then
+                echo "--> $LLVM_VERSION"
+                rm "${DOCSET_INDEX}"
+                exit $?
+            fi
+        fi
+    done
+fi

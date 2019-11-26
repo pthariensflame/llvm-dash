@@ -1,6 +1,8 @@
 .PHONY: help
 
 IMAGE_NAME ?= llvm-dash
+LLVM_PREFIX ?=
+ASSUME_LUMEN_STYLE_BUILD ?= false
 
 help:
 	@echo "$(IMAGE_NAME)"
@@ -10,4 +12,16 @@ _venv: requirements.txt bin/setup
 	@bin/setup
 
 docs: _venv bin/generate bin/index.py ## Generate docset
-	@bin/generate
+	@env LLVM_PREFIX=$(LLVM_PREFIX) ASSUME_LUMEN_STYLE_BUILD=$(ASSUME_LUMEN_STYLE_BUILD) \
+		bin/generate
+
+reindex: clean-index docs ## Re-generate fresh index
+
+clean: ## Clean generated html files
+	@bin/clean documents
+
+clean-index: ## Clean docset indices
+	@bin/clean index
+
+clean-all: ## Clean all builds
+	@bin/clean all

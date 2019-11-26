@@ -6,8 +6,24 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 DOCSET_NAME='LLVM'
 BUILD_DIR=""
-LLVM_VERSION="$LLVM_VERSION"
+LLVM_VERSION=""
 LLVM_SRC_DIR=""
+LLVM_PREFIX="${LLVM_PREFIX/[~]/$HOME}"
+ASSUME_LUMEN_STYLE_BUILD="$ASSUME_LUMEN_STYLE_BUILD"
+
+source "${REPO_DIR}/_venv/bin/activate"
+
+if [ ! -z "${LLVM_PREFIX}" ]; then
+    if [ -d "${LLVM_PREFIX}" ]; then
+        PATH="${LLVM_PREFIX}/bin:$PATH"
+    else
+        echo "LLVM_PREFIX is not a directory, or doesn't exist!"
+        echo ""
+        echo "    LLVM_PREFIX = ${LLVM_PREFIX}"
+        echo ""
+        exit 2
+    fi
+fi
 
 if ! type -p sphinx-build >/dev/null; then
     echo "Cannot locate sphinx-build, is Sphinx installed?"
@@ -25,16 +41,10 @@ if [ -z "$LLVM_VERSION" ]; then
             exit 2
         fi
     elif type -p llvmenv >/dev/null; then
-        llvmenv_prefix="$(llvmenv prefix)"
-        llvm_config="${llvmenv_prefix}/bin/llvm-config"
-        if LLVM_VERSION="$("${llvm_config}" --version)"; then
-            LLVM_SRC_DIR="$("${llvm_config}" --src-root)"
-            if [ -d "${LLVM_SRC_DIR}/build/docs/doxygen/html" ] && [ -f "${LLVM_SRC_DIR}/build/docs/llvm.tags" ]; then
-                # Doxygen docs have been generated with a tagfile
-                mkdir -p "${REPO_DIR}/_build/${LLVM_VERSION}/build"
-                cp --update -R "${LLVM_SRC_DIR}/build/docs/doxygen/html" "${REPO_DIR}/_build/${LLVM_VERSION}/build/doxygen"
-                cp --update "${LLVM_SRC_DIR}/build/docs/llvm.tags" "${REPO_DIR}/_build/${LLVM_VERSION}/build/doxygen/llvm.tags"
-            fi
+        if LLVM_PREFIX="$(llvmenv prefix)"; then
+            PATH="${LLVM_PREFIX}/bin"
+            LLVM_VERSION="$(llvm-config --version)"
+            LLVM_SRC_DIR="$(llvm-config --src-root)"
         else
             echo "There is no current llvmenv version active"
             exit 2
@@ -45,22 +55,52 @@ if [ -z "$LLVM_VERSION" ]; then
     fi
 fi
 
+if [ -z "$NO_DOXYGEN" ]; then
+    if [ "$ASSUME_LUMEN_STYLE_BUILD" = "true" ]; then
+        llvm_docs_dir="${LLVM_SRC_DIR}/../build/host/docs"
+        if [ ! -d "${llvm_docs_dir}" ]; then
+            echo "Expected to find built docs directory at '${llvm_docs_dir}'"
+            exit 2
+        fi
+        if [ -d "${llvm_docs_dir}/doxygen/html" ] && [ -f "${llvm_docs_dir}/llvm.tags" ]; then
+            # Doxygen docs have been generated with a tagfile
+            DOXYGEN_PATH="${llvm_docs_dir}/doxygen/html"
+            cp --update "${llvm_docs_dir}/llvm.tags" "${llvm_docs_dir}/doxygen/html/llvm.tags"
+        else
+            echo "Doxygen documentation was not generated with a tagfile (not found at '${llvm_docs_dir}/llvm.tags')"
+        fi
+    elif [ -d "${LLVM_SRC_DIR}/build/docs/doxygen/html" ] && [ -f "${LLVM_SRC_DIR}/build/docs/llvm.tags" ]; then
+        # Doxygen docs have been generated with a tagfile
+        DOXYGEN_PATH="${LLVM_SRC_DIR}/build/docs/doxygen/html"
+        cp --update "${LLVM_SRC_DIR}/build/docs/llvm.tags" "${LLVM_SRC_DIR}/build/docs/doxygen/html/llvm.tags" >/dev/null
+    else
+        echo "Doxygen documentation was not generated with a tagfile (not found at '${LLVM_SRC_DIR}/build/docs/llvm.tags')"
+    fi
+else
+    echo "Skipping Doxygen documentation, as NO_DOXYGEN is set"
+fi
+
 VERSION_DIR="${REPO_DIR}/_build/${LLVM_VERSION}"
 BUILD_DIR="${VERSION_DIR}/build"
 DOCSET_ROOT="${VERSION_DIR}/${DOCSET_NAME}.docset"
-OUTPUT_DIR="${DOCSET_ROOT}/Contents/Resources/"
+OUTPUT_DIR="${DOCSET_ROOT}/Contents/Resources"
 DOCS_DIR="${OUTPUT_DIR}/Documents"
 mkdir -p "${VERSION_DIR}"
 mkdir -p "${BUILD_DIR}"
-mkdir -p "${OUTPUT_DIR}"
+mkdir -p "${DOCS_DIR}"
 
 # Add icon
 if [ -f "${REPO_DIR}/resources/icon.png" ]; then
-    cp "${REPO_DIR}/resources/icon.png" "${DOCSET_ROOT}/icon.png"
+    cp "${REPO_DIR}/resources/icon.png" "${DOCSET_ROOT}/icon.png" >/dev/null
 fi
 
 # No source available, download it
 if [ -z "$LLVM_SRC_DIR" ]; then
+    if [ "$ASSUME_LUMEN_STYLE_BUILD" = "true" ]; then
+        echo "No sources found! Expected to find an already built LLVM source root"
+        exit 2
+    fi
+    echo "No sources found, downloading LLVM ${LLVM_VERSION}.."
     src_name="llvm-${LLVM_VERSION}.src"
     LLVM_SRC_DIR="${VERSION_DIR}/src"
     if [ ! -d "${LLVM_SRC_DIR}" ]; then
@@ -81,18 +121,28 @@ fi
 
 # Build docs
 if [ ! -d "${BUILD_DIR}/html" ]; then
-    pushd "${LLVM_SRC_DIR}/docs"
-    if ! make -f Makefile.sphinx BUILDDIR="${BUILD_DIR}"; then
-        exit 1
+    if [ "$ASSUME_LUMEN_STYLE_BUILD" = "true" ]; then
+        doc_src_dir="${LLVM_SRC_DIR}/../build/host/docs/html"
+        if [ ! -d "${doc_src_dir}" ]; then
+            echo "Expected to find built docs at '${doc_src_dir}'!"
+            exit 2
+        fi
+        rsync -q -r -u --progress "${doc_src_dir}/" "${BUILD_DIR}/html" 
+    else
+        pushd "${LLVM_SRC_DIR}/docs"
+        if ! make -f Makefile.sphinx BUILDDIR="${BUILD_DIR}"; then
+            exit 1
+        fi
+        popd
     fi
-    popd
 fi
 
 # Determine if we have Doxygen docs in an appropriate format
-DOXYGEN_PATH="${BUILD_DIR}/doxygen"
-if [ -d "${DOXYGEN_PATH}" ]; then
-    cp --update -R "${DOXYGEN_PATH}" "${BUILD_DIR}/html/doxygen"
-else
+if [ ! -z "${DOXYGEN_PATH}" ] && [ -d "${DOXYGEN_PATH}" ]; then
+    if [ ! -d "${DOCS_DIR}/doxygen" ]; then
+        rsync -r -u --exclude="*.md5" --progress "${DOXYGEN_PATH}/" "${DOCS_DIR}/doxygen"
+    fi
+elif [ -z "$NO_DOXYGEN" ]; then
     # Fall back to legacy generation
     tarball="llvm_doxygen-${LLVM_VERSION}.tar.xz"
     url="http://releases.llvm.org/${LLVM_VERSION}/${tarball}"
@@ -103,6 +153,7 @@ else
             exit 1
         fi
     fi
+    DOXYGEN_PATH="${BUILD_DIR}/doxygen"
     if ! tar -xf "${download_path}" -C "${DOXYGEN_PATH}"; then
         exit 1
     fi
@@ -110,14 +161,19 @@ fi
 
 
 # Build successful, move output to docset directory
-cp --update -R --target-directory "${DOCS_DIR}" "${BUILD_DIR}/html/"
+rsync -q -r -u --progress "${BUILD_DIR}/html/" "${DOCS_DIR}"
 
 # Build docset database
-python "${REPO_DIR}/bin/index.py" \
+EXTRA=""
+if [ ! -z "$NO_DOXYGEN" ]; then
+    EXTRA="--no-doxygen"
+fi
+if [ ! -z "$DEBUG" ]; then
+    EXTRA="$EXTRA --debug"
+fi
+python3 "${REPO_DIR}/bin/index.py" \
     --docset="${DOCSET_NAME}.docset" \
     --docset-root="${DOCSET_ROOT}" \
     --llvm-version="${LLVM_VERSION}" \
-    --llvm-source="${LLVM_SRC_DIR}"
-
-# Link latest docset into root
-ln -sf "${DOCSET_ROOT}" "${REPO_DIR}/${DOCSET_NAME}.docset"
+    --llvm-source="${LLVM_SRC_DIR}" \
+    $EXTRA
