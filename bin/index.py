@@ -441,7 +441,7 @@ def write_plist(contents_dir, docset, llvm_version, **kwargs):
     #base_url = 'http://llvm.org/releases/{0}/docs/'.format(llvm_version)
     base_url = 'file://{0}/'.format(kwargs.get('documents_dir'))
     plist_path = os.path.join(contents_dir, 'Info.plist')
-    content = ' <?xml version=\'1.0\' encoding=\'UTF-8\'?>\n' \
+    content = '<?xml version=\'1.0\' encoding=\'UTF-8\'?>\n' \
         '<!DOCTYPE plist PUBLIC \'-//Apple//DTD PLIST 1.0//EN\' \'http://www.apple.com/DTDs/PropertyList-1.0.dtd\'>\n' \
         '<plist version=\'1.0\'>\n' \
         '<dict>\n' \
